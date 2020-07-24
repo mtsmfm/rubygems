@@ -170,8 +170,9 @@ module Bundler
         index = Index.new
 
         if File.directory?(expanded_path)
+          escaped_expanded_path = Bundler::Thor::Util.escape_globs(expanded_path)
           # We sort depth-first since `<<` will override the earlier-found specs
-          Dir["#{expanded_path}/#{@glob}"].sort_by {|p| -p.split(File::SEPARATOR).size }.each do |file|
+          Dir["#{escaped_expanded_path}/#{@glob}"].sort_by {|p| -p.split(File::SEPARATOR).size }.each do |file|
             next unless spec = load_gemspec(file)
             spec.source = self
 
