@@ -32,7 +32,7 @@ module Bundler
 
     def initialize(base = nil, name = nil)
       @base = File.expand_path(base || SharedHelpers.pwd)
-      gemspecs = name ? [File.join(@base, "#{name}.gemspec")] : Dir[File.join(@base, "{,*}.gemspec")]
+      gemspecs = name ? [File.join(@base, "#{name}.gemspec")] : Dir[File.join(escaped_base, "{,*}.gemspec")]
       raise "Unable to determine name from existing gemspec. Use :name => 'gemname' in #install_tasks to manually set it." unless gemspecs.size == 1
       @spec_path = gemspecs.first
       @gemspec = Bundler.load_gemspec(@spec_path)
@@ -102,6 +102,11 @@ module Bundler
 
   protected
 
+    def escaped_base
+      require_relative "vendored_thor"
+      Bundler::Thor::Util.escape_globs(base)
+    end
+
     def rubygem_push(path)
       cmd = [*gem_command, "push", path]
       cmd << "--key" << gem_key if gem_key
@@ -111,7 +116,7 @@ module Bundler
     end
 
     def built_gem_path
-      Dir[File.join(base, "#{name}-*.gem")].sort_by {|f| File.mtime(f) }.last
+      Dir[File.join(escaped_base, "#{name}-*.gem")].sort_by {|f| File.mtime(f) }.last
     end
 
     def git_push(remote = nil)
