@@ -87,8 +87,7 @@ module Bundler
         end
 
         def checkout
-          return if path.exist? && has_revision_cached?
-          extra_ref = "#{Shellwords.shellescape(ref)}:#{Shellwords.shellescape(ref)}" if ref && ref.start_with?("refs/")
+          return if path.exist? && has_ref_cached?
 
           Bundler.ui.info "Fetching #{URICredentialsFilter.credential_filtered_uri(uri)}"
 
@@ -96,13 +95,11 @@ module Bundler
             SharedHelpers.filesystem_access(path.dirname) do |p|
               FileUtils.mkdir_p(p)
             end
-            git_retry %(clone #{uri_escaped_with_configured_credentials} "#{path}" --bare --no-hardlinks --quiet)
-            return unless extra_ref
+
+            git %(init --bare --quiet "#{path}")
           end
 
-          with_path do
-            git_retry %(fetch --force --quiet --tags #{uri_escaped_with_configured_credentials} "refs/heads/*:refs/heads/*" #{extra_ref}), :dir => path
-          end
+          git_retry %(fetch --force --quiet --depth 1 #{uri_escaped_with_configured_credentials} #{Shellwords.shellescape(ref)}:#{internal_ref_name}), :dir => path
         end
 
         def copy_to(destination, submodules = false)
@@ -125,7 +122,7 @@ module Bundler
             end
           end
           # method 2
-          git_retry %(fetch --force --quiet --tags "#{path}"), :dir => destination
+          git_retry %(fetch --force --quiet --tags), :dir => destination
 
           begin
             git "reset --hard #{@revision}", :dir => destination
@@ -170,9 +167,12 @@ module Bundler
           URICredentialsFilter.credential_filtered_string(out, uri)
         end
 
-        def has_revision_cached?
-          return unless @revision
-          with_path { git("cat-file -e #{@revision}", :dir => path) }
+        def internal_ref_name
+          "bundler-internal/#{Shellwords.shellescape(ref)}"
+        end
+
+        def has_ref_cached?
+          with_path { git("show-ref #{internal_ref_name}", :dir => path) }
           true
         rescue GitError
           false
@@ -184,7 +184,7 @@ module Bundler
 
         def find_local_revision
           allowed_with_path do
-            git("rev-parse --verify #{Shellwords.shellescape(ref)}", :dir => path).strip
+            git("rev-parse --verify #{internal_ref_name}", :dir => path).strip
           end
         rescue GitCommandError => e
           raise MissingGitRevisionError.new(e.command, path, path, ref, URICredentialsFilter.credential_filtered_uri(uri))
