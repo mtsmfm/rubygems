@@ -749,7 +749,7 @@ class TestGemDependencyInstaller < Gem::TestCase
     inst = nil
 
     Dir.chdir @tempdir do
-      inst = Gem::DependencyInstaller.new
+      inst = Gem::DependencyInstaller.new :force => true
       inst.install 'a'
     end
 
@@ -842,7 +842,7 @@ class TestGemDependencyInstaller < Gem::TestCase
 
   require 'rubygems/openssl'
 
-  if defined? OpenSSL
+  if Gem::HAVE_OPENSSL
     def test_install_security_policy
       util_setup_gems
 
