@@ -25,10 +25,11 @@ module Bundler
       end
 
       class GitCommandError < GitError
-        attr_reader :command
+        attr_reader :command, :original_error
 
-        def initialize(command, path, destination_path, extra_info = nil)
+        def initialize(command, path, destination_path, extra_info: nil, original_error: nil)
           @command = command
+          @original_error = original_error
 
           msg = String.new
           msg << "Git error: command `git #{command}` in directory #{destination_path} has failed."
@@ -41,7 +42,7 @@ module Bundler
       class MissingGitRevisionError < GitCommandError
         def initialize(command, path, destination_path, ref, repo)
           msg = "Revision #{ref} does not exist in the repository #{repo}. Maybe you misspelled it?"
-          super command, path, destination_path, msg
+          super command, path, destination_path, extra_info: msg
         end
       end
 
@@ -88,6 +89,7 @@ module Bundler
 
         def checkout
           return if path.exist? && has_ref_cached?
+          extra_ref = "#{Shellwords.shellescape(ref)}:#{Shellwords.shellescape(ref)}" if ref && ref.start_with?("refs/")
 
           Bundler.ui.info "Fetching #{URICredentialsFilter.credential_filtered_uri(uri)}"
 
@@ -99,7 +101,18 @@ module Bundler
             git %(init --bare --quiet "#{path}")
           end
 
-          git_retry %(fetch --force --quiet --depth 1 #{uri_escaped_with_configured_credentials} #{Shellwords.shellescape(ref)}:#{internal_ref_name}), :dir => path
+          with_path do
+            begin
+              git_retry %(fetch --force --quiet --depth 1 #{uri_escaped_with_configured_credentials} #{Shellwords.shellescape(ref)}:#{internal_ref_name}), :dir => path
+            rescue GitCommandError => e
+              if e.original_error.include?("Server does not allow request for unadvertised object")
+                git_retry %(fetch --force --quiet --tags #{uri_escaped_with_configured_credentials} "refs/heads/*:refs/heads/*" #{extra_ref}), :dir => path
+                git %(branch #{internal_ref_name} #{Shellwords.shellescape(ref)}), :dir => path
+              else
+                raise
+              end
+            end
+          end
         end
 
         def copy_to(destination, submodules = false)
@@ -158,11 +171,11 @@ module Bundler
         def git(command, dir: SharedHelpers.pwd)
           command_with_no_credentials = check_allowed(command)
 
-          out, status = SharedHelpers.with_clean_git_env do
+          out, err, status = SharedHelpers.with_clean_git_env do
             capture_and_filter_stderr(uri, "git #{command}", :chdir => dir.to_s)
           end
 
-          raise GitCommandError.new(command_with_no_credentials, path, dir) unless status.success?
+          raise GitCommandError.new(command_with_no_credentials, path, dir, original_error: err) unless status.success?
 
           URICredentialsFilter.credential_filtered_string(out, uri)
         end
@@ -239,8 +252,9 @@ module Bundler
         def capture_and_filter_stderr(uri, cmd, chdir: SharedHelpers.pwd)
           require "open3"
           return_value, captured_err, status = Open3.capture3(cmd, :chdir => chdir)
-          Bundler.ui.warn URICredentialsFilter.credential_filtered_string(captured_err, uri) if uri && !captured_err.empty?
-          [return_value, status]
+          filtered_err = URICredentialsFilter.credential_filtered_string(captured_err, uri) if uri && !captured_err.empty?
+          Bundler.ui.warn filtered_err
+          [return_value, filtered_err, status]
         end
 
         def capture_and_ignore_stderr(cmd, chdir: SharedHelpers.pwd)
