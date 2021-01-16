@@ -825,9 +825,6 @@ module Bundler
           # commonly happens if the version changed in the gemspec
           next unless new_spec
 
-          new_runtime_deps = new_spec.dependencies.select {|d| d.type != :development }
-          old_runtime_deps = s.dependencies.select {|d| d.type != :development }
-
           s.dependencies.replace(new_spec.dependencies)
         end
 
